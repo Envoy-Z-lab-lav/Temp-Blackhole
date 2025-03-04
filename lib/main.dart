@@ -1,22 +1,3 @@
-/*
- *  This file is part of BlackHole (https://github.com/BrightDV/BlackHole).
- * 
- * BlackHole is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * BlackHole is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public License
- * along with BlackHole.  If not, see <http://www.gnu.org/licenses/>.
- * 
- * Copyright (c) 2021-2023, Ankit Sangwan
- */
-
 import 'dart:async';
 import 'dart:io';
 
@@ -38,59 +19,51 @@ import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:get_it/get_it.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-// import 'package:home_widget/home_widget.dart';
 import 'package:logging/logging.dart';
 import 'package:metadata_god/metadata_god.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 import 'package:sizer/sizer.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // Paint.enableDithering = true; No longer needed
 
-  if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-    await Hive.initFlutter('BlackHole/Database');
-  } else if (Platform.isIOS) {
-    await Hive.initFlutter('Database');
-  } else {
-    await Hive.initFlutter();
+  try {
+    await initializeLogging();
+
+    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+      await Hive.initFlutter('BlackHole/Database');
+    } else if (Platform.isIOS) {
+      await Hive.initFlutter('Database');
+    } else {
+      await Hive.initFlutter();
+    }
+
+    for (final box in hiveBoxes) {
+      await openHiveBox(
+        box['name'].toString(),
+        limit: box['limit'] as bool? ?? false,
+      );
+    }
+
+    if (Platform.isAndroid) {
+      await setOptimalDisplayMode();
+      await Permission.storage.request();
+    }
+
+    await startService();
+    runApp(MyApp());
+  } catch (e, stackTrace) {
+    Logger.root.severe('Failed to initialize app', e, stackTrace);
   }
-  for (final box in hiveBoxes) {
-    await openHiveBox(
-      box['name'].toString(),
-      limit: box['limit'] as bool? ?? false,
-    );
-  }
-  if (Platform.isAndroid) {
-    setOptimalDisplayMode();
-  }
-  await startService();
-  runApp(MyApp());
 }
 
 Future<void> setOptimalDisplayMode() async {
   await FlutterDisplayMode.setHighRefreshRate();
-  // final List<DisplayMode> supported = await FlutterDisplayMode.supported;
-  // final DisplayMode active = await FlutterDisplayMode.active;
-
-  // final List<DisplayMode> sameResolution = supported
-  //     .where(
-  //       (DisplayMode m) => m.width == active.width && m.height == active.height,
-  //     )
-  //     .toList()
-  //   ..sort(
-  //     (DisplayMode a, DisplayMode b) => b.refreshRate.compareTo(a.refreshRate),
-  //   );
-
-  // final DisplayMode mostOptimalMode =
-  //     sameResolution.isNotEmpty ? sameResolution.first : active;
-
-  // await FlutterDisplayMode.setPreferredMode(mostOptimalMode);
 }
 
 Future<void> startService() async {
-  await initializeLogging();
   MetadataGod.initialize();
   final audioHandlerHelper = AudioHandlerHelper();
   final AudioPlayerHandler audioHandler =
@@ -115,44 +88,15 @@ Future<void> openHiveBox(String boxName, {bool limit = false}) async {
     await Hive.openBox(boxName);
     throw 'Failed to open $boxName Box\nError: $error';
   });
-  // clear box if it grows large
   if (limit && box.length > 500) {
     box.clear();
   }
 }
 
-/// Called when Doing Background Work initiated from Widget
-// @pragma('vm:entry-point')
-// Future<void> backgroundCallback(Uri? data) async {
-//   if (data?.host == 'controls') {
-//     final audioHandler = await AudioHandlerHelper().getAudioHandler();
-//     if (data?.path == '/play') {
-//       audioHandler.play();
-//     } else if (data?.path == '/pause') {
-//       audioHandler.pause();
-//     } else if (data?.path == '/skipNext') {
-//       audioHandler.skipToNext();
-//     } else if (data?.path == '/skipPrevious') {
-//       audioHandler.skipToPrevious();
-//     }
-
-//     // await HomeWidget.saveWidgetData<String>(
-//     //   'title',
-//     //   audioHandler?.mediaItem.value?.title,
-//     // );
-//     // await HomeWidget.saveWidgetData<String>(
-//     //   'subtitle',
-//     //   audioHandler?.mediaItem.value?.displaySubtitle,
-//     // );
-//     // await HomeWidget.updateWidget(name: 'BlackHoleMusicWidget');
-//   }
-// }
-
 class MyApp extends StatefulWidget {
   @override
   _MyAppState createState() => _MyAppState();
 
-  // ignore: unreachable_from_main
   static _MyAppState of(BuildContext context) =>
       context.findAncestorStateOfType<_MyAppState>()!;
 }
@@ -171,8 +115,6 @@ class _MyAppState extends State<MyApp> {
   @override
   void initState() {
     super.initState();
-    // HomeWidget.setAppGroupId('com.shadow.blackhole');
-    // HomeWidget.registerBackgroundCallback(backgroundCallback);
     final String systemLangCode = Platform.localeName.substring(0, 2);
     final String? lang = Hive.box('settings').get('lang') as String?;
     if (lang == null &&
@@ -187,7 +129,6 @@ class _MyAppState extends State<MyApp> {
     });
 
     if (Platform.isAndroid || Platform.isIOS) {
-      // For sharing or opening urls/text/files coming from outside the app while the app is in the memory
       _intentDataStreamSubscription =
           ReceiveSharingIntent.getMediaStream().listen(
         (List<SharedMediaFile> value) {
@@ -223,7 +164,6 @@ class _MyAppState extends State<MyApp> {
         },
       );
 
-      // For sharing files coming from outside the app while the app is closed
       ReceiveSharingIntent.getInitialMedia()
           .then((List<SharedMediaFile> value) {
         if (value.isNotEmpty) {
